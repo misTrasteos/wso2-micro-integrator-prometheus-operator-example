@@ -1,0 +1,27 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: service-monitor
+  labels:
+    service-monitor: default
+spec:
+  selector:
+    matchLabels:
+      app: wso2-micro-integrator
+  endpoints:
+  - interval: 1s
+    port: wso2-metrics
+    path: metric-service/metrics
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      targetLabel: __name__
+      #regex: <regex> | default = (.*)
+      replacement: 'wso2_micro_integrator_${1}'
+
+  - interval: 1s
+    port: jmx-exporter
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      targetLabel: __name__
+      #regex: <regex> | default = (.*)
+      replacement: 'jmx_exporter_${1}'

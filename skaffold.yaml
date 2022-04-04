@@ -1,0 +1,28 @@
+apiVersion: skaffold/v2beta23
+kind: Config
+metadata:
+  name: wso2-micro-integrator-prometheus-example
+
+build:
+  artifacts:
+  - image: wso2-micro-integrator
+    context: wso2-micro-integrator-build-context
+    docker:
+      dockerfile: Dockerfile
+  local:
+    push: false
+
+deploy:
+  kubectl:
+    manifests:
+    - k8s/*.yaml
+
+portForward:
+- resourceType: service
+  resourceName: wso2-micro-integrator-service
+  port: 8290
+  localPort: 8290
+- resourceType: service
+  resourceName: prometheus-service
+  port: 9090
+  localPort: 9090

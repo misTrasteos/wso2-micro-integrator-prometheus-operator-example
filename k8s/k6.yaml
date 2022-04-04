@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: k6
+        image: loadimpact/k6:latest
+        command: ["k6", "run", "/tmp/k6.js"]
+
+        volumeMounts:
+        - name: k6-volume
+          mountPath: /tmp/k6.js
+          subPath: k6.js
+      
+      restartPolicy: Never
+
+      volumes:
+      - name:  k6-volume
+        configMap:
+          name:  k6-configmap
+          items:
+          - key: k6.js
+            path: k6.js 
+
+  backoffLimit: 1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-configmap
+data:
+  k6.js: |
+    import http from 'k6/http';
+
+    export const options = {
+      stages: [
+        { duration: '1s',  target: 1 },
+        { duration: '10m',   target: 1 }
+      ]
+
+    };
+
+    export const params = {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      tags: {
+        ktest: 'yes'
+      }
+    };
+
+    export function setup(){
+      return {};
+    }//setup
+
+    export function teardown(data){
+    }//teardown
+
+    export default function () {
+      http.get( 'http://wso2-micro-integrator-service:8290/api1' );
+    }//default

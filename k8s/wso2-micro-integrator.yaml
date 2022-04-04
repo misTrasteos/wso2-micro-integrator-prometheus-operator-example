@@ -1,0 +1,214 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wso2-micro-integrator-service
+  labels:
+    app: wso2-micro-integrator
+spec:
+  selector:
+    app: wso2-micro-integrator
+  ports:
+  - name: http
+    port: 8290
+    targetPort: 8290
+    protocol: TCP
+  - name: wso2-metrics
+    port: 9201
+    targetPort: 9201
+    protocol: TCP
+  - name: jmx-exporter
+    port: 8080
+    targetPort: 8080
+    protocol: TCP    
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wso2-micro-integrator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wso2-micro-integrator
+  template:
+    metadata:
+      labels:
+        app: wso2-micro-integrator 
+    spec:
+      containers:
+      - name: wso2-micro-integrator
+        image: wso2-micro-integrator
+
+        env:
+        - name: JAVA_OPTS
+          value: "-DenablePrometheusApi=true -Dcom.sun.management.jmxremote.port=7777 -Dcom.sun.management.jmxremote.rmi.port=7777 -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -javaagent:/home/wso2carbon/wso2mi-4.0.0/bin/jmx_prometheus_javaagent.jar=8080:/home/wso2carbon/wso2mi-4.0.0/bin/jmx_exporter_config.yaml"
+
+        ports:
+        - name: http
+          containerPort: 8290
+          protocol: TCP
+        - name: wso2-metrics
+          containerPort: 9201
+          protocol: TCP
+        - name: jmx-exporter
+          containerPort: 8080
+          protocol: TCP
+    
+        volumeMounts:
+        - name: wso2-micro-integrator-config-volume
+          mountPath: /home/wso2carbon/wso2mi-4.0.0/conf/deployment.toml
+          subPath: deployment.toml
+
+        - name: jmx-exporter-volume
+          mountPath: /home/wso2carbon/wso2mi-4.0.0/bin/jmx_exporter_config.yaml
+          subPath: jmx_exporter_config.yaml
+
+        - name: wso2-micro-integrator-api-volume
+          mountPath: /home/wso2carbon/wso2mi-4.0.0/repository/deployment/server/synapse-configs/default/api/api1.xml
+          subPath: api1.xml
+        - name: wso2-micro-integrator-api-volume
+          mountPath: /home/wso2carbon/wso2mi-4.0.0/repository/deployment/server/synapse-configs/default/api/api2.xml
+          subPath: api2.xml
+
+      securityContext:
+        fsGroup: 802
+
+      volumes:
+      - name: wso2-micro-integrator-config-volume
+        configMap:
+          name: wso2-micro-integrator-config-configmap
+          items:
+          - key: deployment.toml
+            path: deployment.toml  
+      - name: wso2-micro-integrator-api-volume
+        configMap:
+          name: wso2-micro-integrator-api-configmap
+          items:
+          - key: api1.xml
+            path: api1.xml
+          - key: api2.xml
+            path: api2.xml
+      - name: jmx-exporter-volume
+        configMap:
+          name: jmx-exporter-configmap
+          items:
+          - key: jmx_exporter_config.yaml
+            path: jmx_exporter_config.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wso2-micro-integrator-config-configmap
+data:
+  deployment.toml: |
+    [server]
+    hostname = "localhost"
+
+    [user_store]
+    type = "read_only_ldap"
+
+    [keystore.primary]
+    file_name = "repository/resources/security/wso2carbon.jks"
+    password = "wso2carbon"
+    alias = "wso2carbon"
+    key_password = "wso2carbon"
+
+    [truststore]
+    file_name = "repository/resources/security/client-truststore.jks"
+    password = "wso2carbon"
+    alias = "symmetric.key.value"
+    algorithm = "AES"
+
+    [[synapse_handlers]]
+    name="CustomObservabilityHandler"
+    class="org.wso2.micro.integrator.observability.metric.handler.MetricHandler"
+
+    # https://docs.wso2.com/display/ESB500/JMX+Monitoring
+    # https://docs.wso2.com/display/ESB500/Monitoring+JMX+Based+Statistics
+
+    #[[passthru_properties]]
+    #synapse.passthrough.latency_view.enable_advanced_view="true"
+    #synapse.passthrough.s2slatency_view.enable_advanced_view="true"
+
+    #[[synapse_properties]]
+    #mediation.flow.statistics.enable="true"
+    #mediation.flow.statistics.tracer.collect.payloads="true"
+    #mediation.flow.statistics.tracer.collect.properties="true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wso2-micro-integrator-api-configmap
+data:
+  api1.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <api context="/api1" name="api1" xmlns="http://ws.apache.org/ns/synapse">
+      <resource methods="GET">
+        <inSequence>
+          <log level="custom">
+            <property name="whereAmI?" value="api1"/>
+            <property name="hostname" expression="get-property('env','HOSTNAME')"/>
+          </log>
+
+          <send>
+              <endpoint>
+                  <address uri="http://wso2-micro-integrator-service:8290/api2"/>
+              </endpoint>
+          </send>
+
+          <!--
+          <payloadFactory media-type="json">
+            <format>{"api":"api1", "hostname": "$1"}</format>
+            <args>
+              <arg expression="get-property('env','HOSTNAME')"/>
+            </args>
+          </payloadFactory>
+          <loopback/>
+          -->
+        </inSequence>
+
+        <outSequence>
+          <respond/>
+        </outSequence>
+
+        <faultSequence/>
+      </resource>
+    </api>
+  api2.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <api context="/api2" name="api2" xmlns="http://ws.apache.org/ns/synapse">
+      <resource methods="GET">
+        <inSequence>
+          <log level="custom">
+            <property name="whereAmI?" value="api2"/>
+            <property name="hostname" expression="get-property('env','HOSTNAME')"/>
+          </log>
+
+          <payloadFactory media-type="json">
+            <format>{"api":"api2", "hostname": "$1"}</format>
+            <args>
+              <arg expression="get-property('env','HOSTNAME')"/>
+            </args>
+          </payloadFactory>
+          <loopback/>
+        </inSequence>
+
+        <outSequence>
+          <respond/>
+        </outSequence>
+
+        <faultSequence/>
+      </resource>
+    </api>
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jmx-exporter-configmap
+data:
+  jmx_exporter_config.yaml: |
+    startDelaySeconds: 0
+    hostPort: 127.0.0.1:7777
+    ssl: false
